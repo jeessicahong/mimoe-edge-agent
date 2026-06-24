@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-from openai import APIConnectionError
+from openai import APIConnectionError, APIStatusError
 
 from agent.conversation import Conversation
 from agent.modes import MODES
@@ -245,6 +245,39 @@ def test_run_clear_removes_prior_history(mock_run_deps: MagicMock) -> None:
     second_conv = mock_complete.call_args_list[1][0][2]
     all_contents = [m["content"] for m in second_conv.recent_messages()]
     assert "first" not in all_contents
+
+
+def test_run_api_status_error_rolls_back_and_continues(mock_run_deps: MagicMock) -> None:
+    request = httpx.Request("POST", "http://localhost:8083")
+    status_err = APIStatusError(
+        "model not found",
+        response=httpx.Response(404, request=request),
+        body=None,
+    )
+    with (
+        patch("builtins.input", side_effect=["hello", "world", "/quit"]),
+        patch("main.complete", side_effect=[status_err, "reply"]) as mock_complete,
+    ):
+        run()
+    assert mock_complete.call_count == 2
+    second_conv = mock_complete.call_args_list[1][0][2]
+    user_contents = [m["content"] for m in second_conv.recent_messages() if m["role"] == "user"]
+    assert "hello" not in user_contents
+    assert "world" in user_contents
+
+
+def test_run_empty_reply_is_not_added_to_history(mock_run_deps: MagicMock) -> None:
+    with (
+        patch("builtins.input", side_effect=["hello", "world", "/quit"]),
+        patch("main.complete", side_effect=["", "reply"]) as mock_complete,
+    ):
+        run()
+    assert mock_complete.call_count == 2
+    second_conv = mock_complete.call_args_list[1][0][2]
+    assistant_contents = [
+        m["content"] for m in second_conv.recent_messages() if m["role"] == "assistant"
+    ]
+    assert "" not in assistant_contents
 
 
 def test_run_connection_error_rolls_back_and_continues(mock_run_deps: MagicMock) -> None:

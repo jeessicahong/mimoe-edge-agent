@@ -50,7 +50,12 @@ class Conversation:
 
         Args:
             content: The full reply returned by the model.
+
+        Raises:
+            ValueError: If content is empty or whitespace-only.
         """
+        if not content.strip():
+            raise ValueError("Assistant message content must not be empty.")
         self._messages.append({"role": "assistant", "content": content})
 
     def pop_last_user(self) -> None:

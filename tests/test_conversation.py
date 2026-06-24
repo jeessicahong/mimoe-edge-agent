@@ -101,6 +101,18 @@ def test_add_user_raises_on_whitespace_only_content():
         c.add_user("   ")
 
 
+def test_add_assistant_raises_on_empty_content():
+    c = Conversation("system")
+    with pytest.raises(ValueError, match="empty"):
+        c.add_assistant("")
+
+
+def test_add_assistant_raises_on_whitespace_only_content():
+    c = Conversation("system")
+    with pytest.raises(ValueError, match="empty"):
+        c.add_assistant("   ")
+
+
 # ── sliding window ────────────────────────────────────────────────────────────
 
 

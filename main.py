@@ -187,7 +187,8 @@ def run() -> None:
             logger.error("API error %s: %s", exc.status_code, exc.message)
             continue
 
-        conversation.add_assistant(reply)
+        if reply.strip():
+            conversation.add_assistant(reply)
         print()
 
 
