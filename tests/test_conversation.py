@@ -1,3 +1,5 @@
+import pytest
+
 from agent.conversation import Conversation
 
 
@@ -85,6 +87,18 @@ def test_clear_resets_to_single_system_message():
 def test_recent_messages_returns_list():
     c = Conversation("system")
     assert isinstance(c.recent_messages(), list)
+
+
+def test_add_user_raises_on_empty_content():
+    c = Conversation("system")
+    with pytest.raises(ValueError, match="empty"):
+        c.add_user("")
+
+
+def test_add_user_raises_on_whitespace_only_content():
+    c = Conversation("system")
+    with pytest.raises(ValueError, match="empty"):
+        c.add_user("   ")
 
 
 # ── sliding window ────────────────────────────────────────────────────────────

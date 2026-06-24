@@ -190,6 +190,15 @@ def test_run_empty_input_is_skipped(mock_run_deps: MagicMock) -> None:
         run()
 
 
+def test_run_empty_input_does_not_call_complete(mock_run_deps: MagicMock) -> None:
+    with (
+        patch("builtins.input", side_effect=["", "  ", "/quit"]),
+        patch("main.complete") as mock_complete,
+    ):
+        run()
+    mock_complete.assert_not_called()
+
+
 def test_run_user_message_triggers_complete(mock_run_deps: MagicMock) -> None:
     with (
         patch("builtins.input", side_effect=["hello", "/quit"]),

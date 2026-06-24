@@ -37,7 +37,12 @@ class Conversation:
 
         Args:
             content: The raw text typed by the user.
+
+        Raises:
+            ValueError: If content is empty or whitespace-only.
         """
+        if not content.strip():
+            raise ValueError("User message content must not be empty.")
         self._messages.append({"role": "user", "content": content})
 
     def add_assistant(self, content: str) -> None:

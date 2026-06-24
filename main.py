@@ -121,15 +121,16 @@ def run() -> None:
     logger.info("mimoe-edge-agent | endpoint: %s | model: %s", client.base_url, model)
     logger.info("mode: %s — %s", current_mode.name, current_mode.description)
     logger.info("Type /help for commands, /quit to exit.")
+    print()
 
     while True:
         try:
-            user_input = input("\nYou: ").strip()
+            user_input = input("You: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nBye.")
             break
 
-        if not user_input:
+        if not user_input:  # Enter with no text — silently re-prompt
             continue
 
         # ── slash commands ────────────────────────────────────────────────────
@@ -187,6 +188,7 @@ def run() -> None:
             continue
 
         conversation.add_assistant(reply)
+        print()
 
 
 if __name__ == "__main__":
