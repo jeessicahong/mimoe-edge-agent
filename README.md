@@ -50,9 +50,11 @@ The `[dev]` extras install `pytest`, `ruff`, and `pre-commit` alongside the runt
 
 ```bash
 pre-commit install
+pre-commit install --hook-type pre-push
 ```
 
-This wires up ruff (lint + format), the unit test suite, and the integration tests to run automatically on every `git commit`. The integration hook skips silently when Studio is not running.
+Ruff (lint + format) runs on every `git commit`. Tests run on every `git push` —
+unit tests always, integration tests only when Studio is running.
 
 **4. Configure the endpoint**
 
@@ -139,16 +141,12 @@ pytest -m integration -v
 
 If Studio is not running, all tests skip gracefully and the command exits 0.
 
-**Run pre-commit manually against all files**
+**Run hooks manually**
 
 ```bash
-pre-commit run --all-files
+pre-commit run --all-files                        # ruff only (commit-stage hooks)
+pre-commit run --all-files --hook-stage pre-push  # tests (unit + integration)
 ```
-
-This runs ruff (lint + format), the unit test suite, and the integration tests.
-The integration hook skips automatically when Studio is not running, so commits
-are never blocked by a missing endpoint. When Studio is running, integration
-tests also execute on every commit.
 
 ---
 

@@ -26,11 +26,11 @@ repos:
         entry: pytest
         language: system   # uses the active virtualenv's pytest
         pass_filenames: false
-        always_run: true
+        stages: [pre-push]
 
       - id: pytest-integration
         name: pytest (integration — skips if mimOE Studio is not running)
         entry: pytest -m integration -v
         language: system
         pass_filenames: false
-        always_run: true
+        stages: [pre-push]
