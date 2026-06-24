@@ -225,6 +225,34 @@ def test_run_assistant_reply_is_added_to_history(mock_run_deps: MagicMock) -> No
     assert "the reply" in assistant_contents
 
 
+def test_run_help_command_prints_help_text(
+    mock_run_deps: MagicMock, capsys: pytest.CaptureFixture
+) -> None:
+    with patch("builtins.input", side_effect=["/help", "/quit"]):
+        run()
+    assert "/chat" in capsys.readouterr().out
+
+
+def test_run_mode_command_logs_current_mode(mock_run_deps: MagicMock) -> None:
+    with (
+        patch("builtins.input", side_effect=["/mode", "/quit"]),
+        patch("main.logger") as mock_logger,
+    ):
+        run()
+    info_calls = " ".join(str(c) for c in mock_logger.info.call_args_list)
+    assert "CHAT" in info_calls
+
+
+def test_run_unknown_command_logs_warning(mock_run_deps: MagicMock) -> None:
+    with (
+        patch("builtins.input", side_effect=["/foo", "/quit"]),
+        patch("main.logger") as mock_logger,
+    ):
+        run()
+    mock_logger.warning.assert_called_once()
+    assert "/foo" in mock_logger.warning.call_args[0][1]
+
+
 def test_run_mode_switch_to_code_updates_system_prompt(mock_run_deps: MagicMock) -> None:
     with (
         patch("builtins.input", side_effect=["/code", "hello", "/quit"]),
