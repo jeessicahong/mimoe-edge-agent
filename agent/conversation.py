@@ -79,12 +79,21 @@ class Conversation:
 
     # ── accessors ────────────────────────────────────────────────────────────
 
-    @property
-    def messages(self) -> list[ChatCompletionMessageParam]:
-        """The full message list, ready to pass directly to the completions API.
+    def recent_messages(self, max_turns: int = 10) -> list[ChatCompletionMessageParam]:
+        """Return the system prompt plus the most recent conversation turns.
+
+        Older turns are dropped once the history exceeds ``max_turns`` pairs,
+        preventing context window overflow on models with limited token budgets.
+        The system prompt is always included regardless of ``max_turns``.
+
+        Args:
+            max_turns: Maximum number of user/assistant pairs to include.
+                Each pair counts as two messages. Defaults to 10.
 
         Returns:
-            Ordered list of messages starting with the system prompt, followed
-            by alternating user and assistant turns for the current session.
+            Ordered list starting with the system prompt, followed by up to
+            ``max_turns * 2`` of the most recent user and assistant messages.
         """
-        return self._messages
+        system = self._messages[:1]
+        history = self._messages[1:]
+        return system + history[-(max_turns * 2) :]

@@ -135,10 +135,13 @@ def complete(client: OpenAI, model: str, conversation: Conversation) -> str:
     Returns:
         The complete assistant reply assembled from all streamed chunks.
     """
+    messages = conversation.recent_messages()
+    logger.debug("Sending %d messages to model", len(messages))
     stream = client.chat.completions.create(
         model=model,
-        messages=conversation.messages,
+        messages=messages,
         stream=True,
+        max_tokens=512,
     )
     full_reply = ""
     with Live(console=_console, refresh_per_second=15) as live:
