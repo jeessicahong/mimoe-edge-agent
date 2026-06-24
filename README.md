@@ -63,7 +63,7 @@ unit tests always, integration tests only when Studio is running.
 **4. Configure the endpoint**
 
 ```bash
-cp .env.example .env
+cp .env.example .env   # Windows: copy .env.example .env
 ```
 
 Open `.env` and fill in the values from mimOE Studio:
@@ -121,7 +121,7 @@ Set `LOG_LEVEL=DEBUG` to see internal state traces (history rollbacks, system pr
 updates) without HTTP library noise:
 
 ```bash
-LOG_LEVEL=DEBUG python main.py
+LOG_LEVEL=DEBUG python main.py   # Windows: $env:LOG_LEVEL="DEBUG"; python main.py
 ```
 
 ---
@@ -342,3 +342,16 @@ CLI agent
 ```
 
 There is no external model API call from the agent, no cloud inference request, and no API billing tied to each completion. The main tradeoff is that quality, speed, and context length depend on the local model and the machine running it.
+
+### What I would improve next
+
+If I were extending this beyond the assessment scope, I would focus on:
+
+* token-budgeted context management instead of turn-count truncation
+* optional persistent sessions, likely through a small local SQLite store
+* clearer model health checks at startup
+* stronger handling for empty or low-quality model responses
+* optional support for additional local models exposed through mimOE
+* a small tool-calling layer if the selected model/runtime supports it reliably
+
+I intentionally left these out of the first version to keep the project focused on the core integration: local mimOE inference, streaming responses, conversation state, mode selection, and clean terminal behavior.
