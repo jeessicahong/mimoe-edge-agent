@@ -122,13 +122,22 @@ LOG_LEVEL=DEBUG python main.py
 
 ## Development
 
-**Run the test suite**
+**Run the unit tests**
 
 ```bash
 pytest
 ```
 
-27 tests covering `Conversation`, `Mode`, and config validation in `client.py`.
+**Run the integration tests**
+
+Integration tests hit the live mimOE endpoint and require Studio to be running
+with a model loaded:
+
+```bash
+pytest -m integration -v
+```
+
+If Studio is not running, all tests skip gracefully and the command exits 0.
 
 **Run pre-commit manually against all files**
 
@@ -136,8 +145,10 @@ pytest
 pre-commit run --all-files
 ```
 
-This runs ruff (lint + format) and pytest. The same hooks fire automatically on
-every `git commit`.
+This runs ruff (lint + format), the unit test suite, and the integration tests.
+The integration hook skips automatically when Studio is not running, so commits
+are never blocked by a missing endpoint. When Studio is running, integration
+tests also execute on every commit.
 
 ---
 
@@ -150,6 +161,9 @@ mimoe-edge-agent/
 │   ├── conversation.py  # in-session message history
 │   └── modes.py         # named system-prompt personas (chat / code)
 ├── tests/
+│   ├── integration/
+│   │   ├── conftest.py      # session fixtures + auto-skip when Studio is offline
+│   │   └── test_endpoint.py # live endpoint tests (run with: pytest -m integration)
 │   ├── test_client.py
 │   ├── test_conversation.py
 │   └── test_modes.py

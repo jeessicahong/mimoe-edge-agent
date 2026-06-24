@@ -25,6 +25,10 @@ exclude = ["tests*"]
 # ── pytest ────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not integration'"
+markers = [
+    "integration: requires a live mimOE Studio instance (run with: pytest -m integration)",
+]
 
 # ── ruff ─────────────────────────────────────────────────────────────────────
 [tool.ruff]
