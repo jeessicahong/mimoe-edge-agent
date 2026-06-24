@@ -219,8 +219,6 @@ This is a simple sliding-window approach. It keeps the implementation predictabl
 
 The tradeoff is that turn count is only an approximation for token usage. Ten short turns and ten turns with long code blocks can consume very different amounts of context. If I were extending this further, I would move to a token-budgeted window instead, likely starting with a lightweight character-based estimate such as `len(content) // 4` before adding a tokenizer dependency.
 
-
-
 ### Explicit task routing
 
 I kept the interaction model intentionally small. Rather than adding tool calling or orchestration for complexity’s sake, the CLI supports explicit task routing through slash commands.
