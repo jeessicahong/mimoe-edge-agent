@@ -187,8 +187,10 @@ def run() -> None:
             logger.error("API error %s: %s", exc.status_code, exc.message)
             continue
 
-        if reply.strip():
+        try:
             conversation.add_assistant(reply)
+        except ValueError:
+            logger.warning("Model returned an empty reply; response not saved to history.")
         print()
 
 

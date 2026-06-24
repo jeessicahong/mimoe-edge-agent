@@ -298,9 +298,13 @@ def test_run_empty_reply_is_not_added_to_history(mock_run_deps: MagicMock) -> No
     with (
         patch("builtins.input", side_effect=["hello", "world", "/quit"]),
         patch("main.complete", side_effect=["", "reply"]) as mock_complete,
+        patch("main.logger") as mock_logger,
     ):
         run()
     assert mock_complete.call_count == 2
+    # Conversation class enforces the empty-content contract via ValueError;
+    # run() catches it and logs a warning rather than crashing.
+    mock_logger.warning.assert_called_once()
     second_conv = mock_complete.call_args_list[1][0][2]
     assistant_contents = [
         m["content"] for m in second_conv.recent_messages() if m["role"] == "assistant"
