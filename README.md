@@ -193,43 +193,84 @@ mimoe-edge-agent/
 
 ### Thin OpenAI-compatible client, no agent framework
 
-I used the OpenAI SDK as a lightweight client wrapper because mimOE exposes an OpenAI-compatible endpoint. I intentionally kept the integration thin instead of adding LangChain, LlamaIndex, or another agent framework.
+I used the OpenAI SDK as a lightweight client because mimOE exposes an OpenAI-compatible endpoint. I intentionally avoided adding LangChain, LlamaIndex, or another higher-level agent framework because it would have made the integration harder to reason about for very little benefit in this scope.
 
-For this scope, I wanted the mimOE connection to stay easy to follow: configure the local endpoint, send messages to the loaded model, stream the response back, and keep the agent logic transparent.
+The goal here was to keep the mimOE path transparent: configure the local endpoint, send messages to the loaded model, stream the response back, and keep the agent logic easy to explain.
 
 ### Streaming responses
 
-The chat completion call uses `stream=True` so tokens are written to the terminal as soon as the local model generates them.
+The chat completion call uses `stream=True`, so tokens are written to the terminal as soon as the local model generates them.
 
-This matters more with smaller local models because responses can feel slow if the terminal stays frozen until the full completion is done. Streaming makes the CLI feel more responsive while still allowing the app to assemble the full assistant reply and store it in conversation history.
+This makes a noticeable difference with smaller local models. Without streaming, the terminal can look frozen while the model is still generating. With streaming, the CLI feels much more responsive. The full assistant reply is still assembled from the streamed chunks and saved into conversation history after the response completes.
 
 ### Rich markdown rendering
 
-Responses are rendered as live markdown using `rich.Live` and `rich.Markdown`, which updates the display as tokens arrive. This means bold text, code blocks, and lists render properly rather than printing raw markup.
+Responses are rendered as live markdown using `rich.Live` and `rich.Markdown`, so formatting like bold text, lists, and code blocks displays cleanly instead of showing up as raw markdown.
 
-Small local models often emit LaTeX math notation regardless of instructions. A `strip_latex()` pre-processing step converts `$$...$$` display math to fenced code blocks and `$...$` inline math to backtick spans, which `rich` can render without errors.
+One issue I ran into is that small local models may still emit LaTeX-style math even when asked not to. Since `rich.Markdown` does not handle all LaTeX cleanly, I added a small `strip_latex()` preprocessing step. It converts `$$...$$` display math into fenced code blocks and `$...$` inline math into backtick spans, which keeps the terminal output readable and avoids rendering errors.
 
 ### Sliding window context management
 
-Conversation history is capped at the last 10 user/assistant pairs before each request. The system prompt is always included regardless of history length.
+Conversation history is bounded to the system prompt plus the last 10 user/assistant pairs.
 
-This prevents context window exhaustion on small models like SmolLM2, which typically support 2 048–4 096 tokens. Long sessions would otherwise degrade response quality or cause errors as the prompt grows. `max_tokens=512` on each request caps output length for the same reason.
+This keeps requests from growing indefinitely, which matters for smaller local models like SmolLM2. These models usually have much smaller context windows than hosted models, so long sessions can start degrading in quality or fail once too much history is passed in. I also cap each response with `max_tokens=512` for the same reason.
 
-### Mode switching as the agentic behavior
+I chose a turn-based window because it is simple, predictable, and avoids adding summarization, persistence, or tokenizer dependencies for a focused assessment project.
 
-I kept the "agentic" behavior focused and explicit. Instead of trying to force tool calling or complex orchestration onto a small local model, the app supports mode switching through different system prompts.
+That said, turn count is still only a proxy for what actually matters: prompt size. Ten short turns and ten turns with long code blocks are very different. If I were extending this further, I would move to a token-budgeted window instead. A lightweight first step would be a character-based approximation like `len(content) // 4`, which would bound history by estimated prompt size without adding a tokenizer dependency.
 
-The user can choose the active mode, and the agent carries that context through the conversation. This keeps the behavior predictable while still showing a real assistant pattern: routing the same model through different task contexts.
+
+### Explicit task routing
+
+I kept the interaction model intentionally small. Rather than adding tool calling or orchestration for complexity’s sake, the CLI supports explicit task routing through slash commands.
+
+Each mode maps to a different system prompt, so the same local model can be used in different contexts while keeping the behavior easy to inspect and explain.
+
+This is not a fully autonomous agent but rather a focused local assistant that demonstrates the core integration points: local inference, configuration, streaming, bounded history, mode selection, and error handling. More complex orchestration would be a natural next step, but it was outside the scope of this assessment.
+
 
 ### Structured logging with a clean terminal format
 
 I separated conversational output from operational output.
 
-`print()` is only used for the actual chat experience: the `You:` prompt and the assistant's streamed replies. That output goes to stdout, which keeps it easy to read or pipe elsewhere.
+`print()` is reserved for the actual chat experience: the `You:` prompt and the assistant’s streamed replies. That output goes to stdout, so it stays clean and can be piped independently if needed.
 
-Operational messages, such as startup status, mode changes, warnings, and errors, go through `logging` to stderr. INFO logs are formatted like clean status messages without a level prefix, while WARNING and ERROR messages include the level so problems stand out.
+Startup messages, mode switches, warnings, and errors go through `logging` to stderr. INFO logs are formatted like simple status lines without a level prefix, while WARNING and ERROR messages include the level so issues stand out.
 
-The `LOG_LEVEL` environment variable controls verbosity without requiring source changes.
+`LOG_LEVEL` controls verbosity without requiring code changes.
+
+The logging formatter and `strip_latex()` helper live in `agent/utils/terminal.py` instead of `main.py`. I moved them there so the REPL loop could stay focused on control flow, and so the terminal/display helpers could be tested independently from the full agent stack.
+
+### Error recovery with history rollback
+
+If a request fails because the endpoint is unavailable or the API returns an error, the user message that was already added to history is removed before the loop continues.
+
+This keeps the conversation state consistent. Otherwise, the next user message would be treated as a follow-up to a turn that never actually completed, leaving the model with a user message but no assistant reply. That can make multi-turn behavior worse, especially with smaller local models.
+
+The rollback is handled by `pop_last_user()` on the `Conversation` class. It only removes the trailing message if that message is a user message, so it is safe to call from the error handlers.
+
+### Two-layer input validation
+
+Empty input is blocked in two places.
+
+The REPL handles the common case immediately:
+
+```python
+if not user_input:
+    continue
+```
+
+That prevents empty or whitespace-only prompts from being added to history or sent to the model.
+
+The `Conversation.add_user()` and `Conversation.add_assistant()` methods enforce the same rule at the data layer by raising `ValueError` for empty content. That second check is intentional. The REPL guard protects the normal path, while the `Conversation` validation keeps the message list valid if the class is used in tests, another entry point, or future refactors.
+
+### Test strategy
+
+Unit tests mock the external pieces: the OpenAI client, model identifier, stdin, and `rich.Live`. That keeps the tests fast and avoids requiring mimOE Studio or a live local endpoint.
+
+Integration tests live under `tests/integration/` and use `pytest.mark.integration`. They are excluded from the default `pytest` run. A session-scoped fixture checks whether the live mimOE endpoint is reachable before the integration tests run, and skips them if the endpoint is unavailable.
+
+`pytest-cov` is configured in `pyproject.toml` to measure coverage across the `agent/` package and `main.py`. The current unit suite reaches 100% line coverage on production code, while integration tests are intentionally kept separate from that coverage target.
 
 ### In-memory history only
 
@@ -242,6 +283,12 @@ I intentionally did not add persistence for this version. Saving history to SQLi
 `MIMOE_BASE_URL`, `MIMOE_MODEL`, and `MIMOE_API_KEY` are loaded from `.env` at startup.
 
 The app exits early with a clear error message if a required value is missing. This keeps the project portable because the exact endpoint and model name should come from the API panel in mimOE Studio rather than being hardcoded.
+
+### Use of AI tools
+
+I used Claude Code and ChatGPT during this assessment as AI-assisted development tools.
+
+I treated both tools as pair-programming aids rather than sources of final truth. Generated code and documentation were reviewed, tested, and adjusted before being accepted.
 
 ---
 
