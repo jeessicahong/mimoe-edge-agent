@@ -191,38 +191,31 @@ def test_run_empty_input_is_skipped(mock_run_deps: MagicMock) -> None:
 
 
 def test_run_empty_input_does_not_call_complete(mock_run_deps: MagicMock) -> None:
-    with (
-        patch("builtins.input", side_effect=["", "  ", "/quit"]),
-        patch("main.complete") as mock_complete,
-    ):
+    with patch("builtins.input", side_effect=["", "  ", "/quit"]):
         run()
-    mock_complete.assert_not_called()
+    mock_run_deps.chat.completions.create.assert_not_called()
 
 
 def test_run_user_message_triggers_complete(mock_run_deps: MagicMock) -> None:
+    mock_run_deps.chat.completions.create.side_effect = lambda **_: _make_stream("hi")
     with (
         patch("builtins.input", side_effect=["hello", "/quit"]),
-        patch("main.complete", return_value="hi") as mock_complete,
+        patch("main.Live"),
     ):
         run()
-    mock_complete.assert_called_once()
-    conv = mock_complete.call_args[0][2]
-    user_contents = [m["content"] for m in conv.recent_messages() if m["role"] == "user"]
-    assert "hello" in user_contents
+    messages = mock_run_deps.chat.completions.create.call_args.kwargs["messages"]
+    assert any(m["role"] == "user" and m["content"] == "hello" for m in messages)
 
 
 def test_run_assistant_reply_is_added_to_history(mock_run_deps: MagicMock) -> None:
+    mock_run_deps.chat.completions.create.side_effect = lambda **_: _make_stream("the reply")
     with (
         patch("builtins.input", side_effect=["first", "second", "/quit"]),
-        patch("main.complete", return_value="the reply") as mock_complete,
+        patch("main.Live"),
     ):
         run()
-    # The second complete() call should see the assistant reply from the first turn
-    second_conv = mock_complete.call_args_list[1][0][2]
-    assistant_contents = [
-        m["content"] for m in second_conv.recent_messages() if m["role"] == "assistant"
-    ]
-    assert "the reply" in assistant_contents
+    second_messages = mock_run_deps.chat.completions.create.call_args_list[1].kwargs["messages"]
+    assert any(m["role"] == "assistant" and m["content"] == "the reply" for m in second_messages)
 
 
 def test_run_help_command_prints_help_text(
@@ -233,97 +226,99 @@ def test_run_help_command_prints_help_text(
     assert "/chat" in capsys.readouterr().out
 
 
-def test_run_mode_command_logs_current_mode(mock_run_deps: MagicMock) -> None:
+def test_run_mode_command_logs_current_mode(caplog: pytest.LogCaptureFixture) -> None:
     with (
+        patch("main.build_client"),
+        patch("main.get_model", return_value="test-model"),
+        patch("main.setup_logging"),
         patch("builtins.input", side_effect=["/mode", "/quit"]),
-        patch("main.logger") as mock_logger,
+        caplog.at_level(logging.INFO),
     ):
         run()
-    info_calls = " ".join(str(c) for c in mock_logger.info.call_args_list)
-    assert "CHAT" in info_calls
+    assert "CHAT" in caplog.text
 
 
-def test_run_unknown_command_logs_warning(mock_run_deps: MagicMock) -> None:
+def test_run_unknown_command_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
     with (
+        patch("main.build_client"),
+        patch("main.get_model", return_value="test-model"),
+        patch("main.setup_logging"),
         patch("builtins.input", side_effect=["/foo", "/quit"]),
-        patch("main.logger") as mock_logger,
+        caplog.at_level(logging.WARNING),
     ):
         run()
-    mock_logger.warning.assert_called_once()
-    assert "/foo" in mock_logger.warning.call_args[0][1]
+    assert "/foo" in caplog.text
 
 
 def test_run_mode_switch_to_code_updates_system_prompt(mock_run_deps: MagicMock) -> None:
+    mock_run_deps.chat.completions.create.side_effect = lambda **_: _make_stream("response")
     with (
         patch("builtins.input", side_effect=["/code", "hello", "/quit"]),
-        patch("main.complete", return_value="response") as mock_complete,
+        patch("main.Live"),
     ):
         run()
-    conv = mock_complete.call_args[0][2]
-    assert conv.recent_messages()[0]["content"] == MODES["CODE"].system_prompt
+    messages = mock_run_deps.chat.completions.create.call_args.kwargs["messages"]
+    assert messages[0]["content"] == MODES["CODE"].system_prompt
 
 
 def test_run_clear_removes_prior_history(mock_run_deps: MagicMock) -> None:
+    mock_run_deps.chat.completions.create.side_effect = lambda **_: _make_stream("reply")
     with (
         patch("builtins.input", side_effect=["first", "/clear", "second", "/quit"]),
-        patch("main.complete", return_value="reply") as mock_complete,
+        patch("main.Live"),
     ):
         run()
-    # The second complete() call should not see "first" in the conversation
-    second_conv = mock_complete.call_args_list[1][0][2]
-    all_contents = [m["content"] for m in second_conv.recent_messages()]
-    assert "first" not in all_contents
+    second_messages = mock_run_deps.chat.completions.create.call_args_list[1].kwargs["messages"]
+    assert "first" not in [m["content"] for m in second_messages]
 
 
 def test_run_api_status_error_rolls_back_and_continues(mock_run_deps: MagicMock) -> None:
     request = httpx.Request("POST", "http://localhost:8083")
-    status_err = APIStatusError(
-        "model not found",
-        response=httpx.Response(404, request=request),
-        body=None,
-    )
+    mock_run_deps.chat.completions.create.side_effect = [
+        APIStatusError("model not found", response=httpx.Response(404, request=request), body=None),
+        _make_stream("reply"),
+    ]
     with (
         patch("builtins.input", side_effect=["hello", "world", "/quit"]),
-        patch("main.complete", side_effect=[status_err, "reply"]) as mock_complete,
+        patch("main.Live"),
     ):
         run()
-    assert mock_complete.call_count == 2
-    second_conv = mock_complete.call_args_list[1][0][2]
-    user_contents = [m["content"] for m in second_conv.recent_messages() if m["role"] == "user"]
+    second_messages = mock_run_deps.chat.completions.create.call_args_list[1].kwargs["messages"]
+    user_contents = [m["content"] for m in second_messages if m["role"] == "user"]
     assert "hello" not in user_contents
     assert "world" in user_contents
 
 
-def test_run_empty_reply_is_not_added_to_history(mock_run_deps: MagicMock) -> None:
+def test_run_empty_reply_is_not_added_to_history(
+    mock_run_deps: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    mock_run_deps.chat.completions.create.side_effect = [
+        iter([]),  # empty stream → complete() returns "" → ValueError → warning
+        _make_stream("reply"),
+    ]
     with (
         patch("builtins.input", side_effect=["hello", "world", "/quit"]),
-        patch("main.complete", side_effect=["", "reply"]) as mock_complete,
-        patch("main.logger") as mock_logger,
+        patch("main.Live"),
+        caplog.at_level(logging.WARNING),
     ):
         run()
-    assert mock_complete.call_count == 2
-    # Conversation class enforces the empty-content contract via ValueError;
-    # run() catches it and logs a warning rather than crashing.
-    mock_logger.warning.assert_called_once()
-    second_conv = mock_complete.call_args_list[1][0][2]
-    assistant_contents = [
-        m["content"] for m in second_conv.recent_messages() if m["role"] == "assistant"
-    ]
-    assert "" not in assistant_contents
+    assert "empty" in caplog.text.lower()
+    second_messages = mock_run_deps.chat.completions.create.call_args_list[1].kwargs["messages"]
+    assert "" not in [m["content"] for m in second_messages if m["role"] == "assistant"]
 
 
 def test_run_connection_error_rolls_back_and_continues(mock_run_deps: MagicMock) -> None:
     request = httpx.Request("POST", "http://localhost:8083")
-    conn_err = APIConnectionError(request=request)
+    mock_run_deps.chat.completions.create.side_effect = [
+        APIConnectionError(request=request),
+        _make_stream("reply"),
+    ]
     with (
         patch("builtins.input", side_effect=["hello", "world", "/quit"]),
-        patch("main.complete", side_effect=[conn_err, "reply"]) as mock_complete,
+        patch("main.Live"),
     ):
         run()
-    # Both user messages should have triggered complete()
-    assert mock_complete.call_count == 2
-    # After the rollback, "hello" should not appear in the second call's history
-    second_conv = mock_complete.call_args_list[1][0][2]
-    user_contents = [m["content"] for m in second_conv.recent_messages() if m["role"] == "user"]
+    second_messages = mock_run_deps.chat.completions.create.call_args_list[1].kwargs["messages"]
+    user_contents = [m["content"] for m in second_messages if m["role"] == "user"]
     assert "hello" not in user_contents
     assert "world" in user_contents
