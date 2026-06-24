@@ -1,6 +1,5 @@
 """
-mimoe-edge-agent — a minimal conversational agent backed by the local
-mimOE inference endpoint.
+Minimal conversational agent backed by the local mimOE inference endpoint.
 
 Usage:
     python main.py
@@ -40,13 +39,24 @@ HELP_TEXT = textwrap.dedent("""\
 
 
 class _TerminalFormatter(logging.Formatter):
-    """
-    INFO lines are printed as-is (no prefix) — they are status lines, not log entries.
+    """Custom log formatter for interactive terminal output.
+
+    INFO lines are printed as-is — they are status lines, not log entries.
     DEBUG lines include the logger name so the source is traceable.
-    WARNING and above show the level so problems stand out.
+    WARNING and above show the level so problems stand out visually.
     """
 
     def format(self, record: logging.LogRecord) -> str:
+        """Format a log record for terminal display.
+
+        Args:
+            record: The log record produced by a logger call.
+
+        Returns:
+            A formatted string. INFO records return the bare message;
+            DEBUG records are prefixed with the logger name; all other
+            levels are prefixed with the level name.
+        """
         if record.levelno == logging.INFO:
             return record.getMessage()
         if record.levelno == logging.DEBUG:
@@ -55,12 +65,15 @@ class _TerminalFormatter(logging.Formatter):
 
 
 def setup_logging() -> None:
-    """
-    Log level is controlled by the LOG_LEVEL environment variable (default: INFO).
-    Set LOG_LEVEL=DEBUG to see internal state traces from the agent modules.
+    """Configure the root logger for terminal output.
 
-    Conversation output (agent replies, prompts) uses print() to stdout so it
-    can be piped independently of these diagnostic messages.
+    Log level is controlled by the LOG_LEVEL environment variable (default:
+    INFO). Set LOG_LEVEL=DEBUG to see internal state traces from the agent
+    modules without HTTP library noise.
+
+    Conversation output (agent replies and the You: prompt) uses print() to
+    stdout so it can be piped independently of these diagnostic messages,
+    which go to stderr.
     """
     level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
@@ -78,7 +91,17 @@ def setup_logging() -> None:
 
 
 def complete(client: OpenAI, model: str, conversation: Conversation) -> str:
-    """Stream the model reply token by token, printing each piece as it arrives."""
+    """Stream the model reply token by token, printing each piece as it arrives.
+
+    Args:
+        client: The configured OpenAI client pointed at the mimOE endpoint.
+        model: The model identifier to pass in the request (e.g. ``"SmolLM2"``).
+        conversation: The current conversation, whose full message history is
+            sent with the request.
+
+    Returns:
+        The complete assistant reply assembled from all streamed chunks.
+    """
     stream = client.chat.completions.create(
         model=model,
         messages=conversation.messages,
@@ -94,6 +117,12 @@ def complete(client: OpenAI, model: str, conversation: Conversation) -> str:
 
 
 def run() -> None:
+    """Entry point for the conversational REPL loop.
+
+    Initialises logging, builds the OpenAI client from environment config,
+    and drops into an interactive loop that reads user input, dispatches slash
+    commands, and streams model replies token by token until the user quits.
+    """
     setup_logging()
 
     client = build_client()

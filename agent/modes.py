@@ -1,7 +1,7 @@
 """
 Interaction modes — each mode is a named system prompt persona.
 
-Switching modes is the lightweight 'agentic' behavior in this agent:
+Switching modes is the lightweight 'agentic' behaviour in this agent:
 the system prompt changes to route the model's responses through a
 different context, while conversation history is preserved.
 """
@@ -13,6 +13,16 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Mode:
+    """An immutable interaction mode defined by a system prompt persona.
+
+    Attributes:
+        name: Short uppercase identifier for the mode (e.g. ``"CHAT"``).
+        description: One-line human-readable summary shown in the terminal.
+        system_prompt: The instruction passed to the model as the first
+            message in every conversation. Determines the model's persona
+            and response style for the session.
+    """
+
     name: str
     description: str
     system_prompt: str
