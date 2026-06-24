@@ -1,0 +1,29 @@
+repos:
+  # ── general file hygiene ───────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+
+  # ── ruff: lint + format ────────────────────────────────────────────────────
+  # Covers: unused imports (F401), pycodestyle spacing (E/W), isort (I)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff          # lint and auto-fix what it can
+        args: [--fix]
+      - id: ruff-format   # opinionated formatter (replaces black)
+
+  # ── tests ──────────────────────────────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest
+        language: system   # uses the active virtualenv's pytest
+        pass_filenames: false
+        always_run: true
