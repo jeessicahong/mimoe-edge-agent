@@ -11,11 +11,14 @@ local, and no data leaves the machine.
 
 - Connects to the mimOE local inference endpoint via the OpenAI-compatible API.
 - Streams responses token by token so output appears immediately as the model generates it.
-- Maintains conversation history within a session (multi-turn dialogue).
+- Renders responses as live markdown in the terminal (bold, code blocks, lists) via `rich`.
+- Maintains conversation history within a session (multi-turn dialogue) using a sliding
+  window (last 10 turns) to prevent context window overflow on small models.
 - Supports two interaction modes that can be switched at any time:
   - **chat** — general-purpose assistant
   - **code** — programming-focused assistant with a code-oriented system prompt
-- Handles connection errors, API errors, and missing configuration gracefully.
+- Handles connection errors, API errors, and missing configuration gracefully, rolling
+  back the user message from history if a request fails.
 - Structured logging with configurable level via `LOG_LEVEL` environment variable.
 
 ---
@@ -44,7 +47,8 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
-The `[dev]` extras install `pytest`, `ruff`, and `pre-commit` alongside the runtime dependencies.
+The `[dev]` extras install `pytest`, `pytest-cov`, `ruff`, and `pre-commit`
+alongside the runtime dependencies.
 
 **3. Install pre-commit hooks**
 
@@ -87,17 +91,17 @@ python main.py
 ```
 You: explain what an edge node is in two sentences
 
-Agent (chat): An edge node is a device at the periphery of a network that
+Agent (CHAT): An edge node is a device at the periphery of a network that
 processes data locally rather than sending it to a central cloud server.
 This reduces latency, improves privacy, and allows computation to continue
 even without a reliable internet connection.
 
 You: /code
-Switched to code mode -- Code-focused assistant -- writes and explains code
+Switched to CODE mode — Code-focused assistant — writes and explains code
 
 You: write a Python function that retries a failing HTTP call with backoff
 
-Agent (code): ...
+Agent (CODE): ...
 ```
 
 ### Available commands
@@ -130,6 +134,12 @@ LOG_LEVEL=DEBUG python main.py
 pytest
 ```
 
+**Run with coverage**
+
+```bash
+pytest --cov --cov-report=term-missing
+```
+
 **Run the integration tests**
 
 Integration tests hit the live mimOE endpoint and require Studio to be running
@@ -155,20 +165,24 @@ pre-commit run --all-files --hook-stage pre-push  # tests (unit + integration)
 ```
 mimoe-edge-agent/
 ├── agent/
-│   ├── client.py        # builds the OpenAI client from .env config
-│   ├── conversation.py  # in-session message history
-│   └── modes.py         # named system-prompt personas (chat / code)
+│   ├── utils/
+│   │   └── terminal.py      # TerminalFormatter + strip_latex for markdown rendering
+│   ├── client.py            # builds the OpenAI client from .env config
+│   ├── conversation.py      # in-session message history with sliding window
+│   └── modes.py             # named system-prompt personas (CHAT / CODE)
 ├── tests/
 │   ├── integration/
 │   │   ├── conftest.py      # session fixtures + auto-skip when Studio is offline
 │   │   └── test_endpoint.py # live endpoint tests (run with: pytest -m integration)
-│   ├── test_client.py
-│   ├── test_conversation.py
-│   └── test_modes.py
-├── main.py                   # CLI entry point and REPL loop
-├── pyproject.toml            # package definition, dependencies, tool config
-├── .pre-commit-config.yaml   # ruff + unit and integration pytest hooks
-├── .env.example              # configuration template
+│   ├── test_client.py       # build_client / get_model startup and config tests
+│   ├── test_conversation.py # Conversation history and sliding window tests
+│   ├── test_main.py         # REPL loop, complete(), and setup_logging tests
+│   ├── test_modes.py        # mode definitions and system prompt tests
+│   └── test_terminal.py     # TerminalFormatter and strip_latex tests
+├── main.py                  # CLI entry point and REPL loop
+├── pyproject.toml           # package definition, dependencies, tool config
+├── .pre-commit-config.yaml  # ruff + unit and integration pytest hooks
+├── .env.example             # configuration template
 ├── .gitignore
 └── README.md
 ```
@@ -189,9 +203,21 @@ The chat completion call uses `stream=True` so tokens are written to the termina
 
 This matters more with smaller local models because responses can feel slow if the terminal stays frozen until the full completion is done. Streaming makes the CLI feel more responsive while still allowing the app to assemble the full assistant reply and store it in conversation history.
 
+### Rich markdown rendering
+
+Responses are rendered as live markdown using `rich.Live` and `rich.Markdown`, which updates the display as tokens arrive. This means bold text, code blocks, and lists render properly rather than printing raw markup.
+
+Small local models often emit LaTeX math notation regardless of instructions. A `strip_latex()` pre-processing step converts `$$...$$` display math to fenced code blocks and `$...$` inline math to backtick spans, which `rich` can render without errors.
+
+### Sliding window context management
+
+Conversation history is capped at the last 10 user/assistant pairs before each request. The system prompt is always included regardless of history length.
+
+This prevents context window exhaustion on small models like SmolLM2, which typically support 2 048–4 096 tokens. Long sessions would otherwise degrade response quality or cause errors as the prompt grows. `max_tokens=512` on each request caps output length for the same reason.
+
 ### Mode switching as the agentic behavior
 
-I kept the “agentic” behavior focused and explicit. Instead of trying to force tool calling or complex orchestration onto a small local model, the app supports mode switching through different system prompts.
+I kept the "agentic" behavior focused and explicit. Instead of trying to force tool calling or complex orchestration onto a small local model, the app supports mode switching through different system prompts.
 
 The user can choose the active mode, and the agent carries that context through the conversation. This keeps the behavior predictable while still showing a real assistant pattern: routing the same model through different task contexts.
 
@@ -199,7 +225,7 @@ The user can choose the active mode, and the agent carries that context through 
 
 I separated conversational output from operational output.
 
-`print()` is only used for the actual chat experience: the `You:` prompt and the assistant’s streamed replies. That output goes to stdout, which keeps it easy to read or pipe elsewhere.
+`print()` is only used for the actual chat experience: the `You:` prompt and the assistant's streamed replies. That output goes to stdout, which keeps it easy to read or pipe elsewhere.
 
 Operational messages, such as startup status, mode changes, warnings, and errors, go through `logging` to stderr. INFO logs are formatted like clean status messages without a level prefix, while WARNING and ERROR messages include the level so problems stand out.
 
@@ -221,10 +247,10 @@ The app exits early with a clear error message if a required value is missing. T
 
 ## Limitations
 
-* **Model capability:** SmolLM2 and similarly small local models have more limited reasoning ability and context windows than larger hosted models. As conversation history grows, response quality may degrade.
+* **Model capability:** SmolLM2 and similarly small local models have more limited reasoning ability and context windows than larger hosted models. As conversation history grows, response quality may degrade even with the sliding window in place.
 * **No tool use or function calling:** I intentionally left out tool calling because support can vary across small local models and OpenAI-compatible local runtimes.
 * **No persistent history:** Conversation state only exists for the current CLI session.
-* **API key placeholder:** mimOE’s local endpoint does not appear to validate the API key, but the OpenAI SDK still requires a non-empty value. The app uses `"not-required"` as a safe local placeholder when no key is provided.
+* **API key placeholder:** mimOE's local endpoint does not appear to validate the API key, but the OpenAI SDK still requires a non-empty value. The app uses `"not-required"` as a safe local placeholder when no key is provided.
 
 ---
 
@@ -251,9 +277,9 @@ I chose the OpenAI Python client because it is the simplest way to target an Ope
 
 The client already handles request construction, response parsing, streaming, retry behavior, and typed response objects. Pointing it at mimOE only requires changing the base URL and model configuration.
 
-That felt like the right interpretation of the “BYO Framework” option: use a tool I already know, configure it for the local mimOE backend, and keep the rest of the app small enough to explain clearly.
+That felt like the right interpretation of the "BYO Framework" option: use a tool I already know, configure it for the local mimOE backend, and keep the rest of the app small enough to explain clearly.
 
-### What “on-device AI” means in this project
+### What "on-device AI" means in this project
 
 In this project, the inference path stays local.
 

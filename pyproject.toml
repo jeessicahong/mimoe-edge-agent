@@ -15,6 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
     "ruff>=0.6.0",
     "pre-commit>=3.7.0",
 ]
@@ -29,6 +30,19 @@ testpaths = ["tests"]
 addopts = "-m 'not integration'"
 markers = [
     "integration: requires a live mimOE Studio instance (run with: pytest -m integration)",
+]
+
+# ── coverage ──────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["agent", "main"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
 ]
 
 # ── ruff ─────────────────────────────────────────────────────────────────────
