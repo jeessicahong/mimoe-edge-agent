@@ -17,15 +17,44 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import textwrap
 
 from openai import APIConnectionError, APIStatusError, OpenAI
+from rich.console import Console
+from rich.live import Live
+from rich.markdown import Markdown
 
 from agent.client import build_client, get_model
 from agent.conversation import Conversation
 from agent.modes import DEFAULT_MODE, MODES, Mode
 
 logger = logging.getLogger(__name__)
+_console = Console()
+
+# Small local models often output LaTeX math regardless of instructions.
+# These patterns convert delimiters to markdown equivalents rich can render.
+_DISPLAY_MATH = re.compile(r"\$\$(.+?)\$\$", re.DOTALL)
+_INLINE_MATH = re.compile(r"\$(.+?)\$")
+
+
+def _strip_latex(text: str) -> str:
+    """Replace LaTeX math delimiters with markdown equivalents.
+
+    Display math ($$...$$) becomes a fenced code block so it is visually
+    distinct. Inline math ($...$) becomes a backtick span. The LaTeX source
+    inside is preserved unchanged — it is not converted to Unicode.
+
+    Args:
+        text: Raw model output, potentially containing LaTeX delimiters.
+
+    Returns:
+        The same text with LaTeX delimiters replaced by markdown equivalents.
+    """
+    text = _DISPLAY_MATH.sub(lambda m: f"\n```\n{m.group(1).strip()}\n```\n", text)
+    text = _INLINE_MATH.sub(lambda m: f"`{m.group(1).strip()}`", text)
+    return text
+
 
 HELP_TEXT = textwrap.dedent("""\
     Commands:
@@ -91,7 +120,11 @@ def setup_logging() -> None:
 
 
 def complete(client: OpenAI, model: str, conversation: Conversation) -> str:
-    """Stream the model reply token by token, printing each piece as it arrives.
+    """Stream the model reply and render it as live markdown in the terminal.
+
+    Tokens are appended to a buffer as they arrive; the buffer is re-rendered
+    as markdown on each update so formatting (bold, code blocks, lists) appears
+    correctly rather than as raw markup.
 
     Args:
         client: The configured OpenAI client pointed at the mimOE endpoint.
@@ -108,11 +141,11 @@ def complete(client: OpenAI, model: str, conversation: Conversation) -> str:
         stream=True,
     )
     full_reply = ""
-    for chunk in stream:
-        piece = chunk.choices[0].delta.content or ""
-        print(piece, end="", flush=True)
-        full_reply += piece
-    print()
+    with Live(console=_console, refresh_per_second=15) as live:
+        for chunk in stream:
+            piece = chunk.choices[0].delta.content or ""
+            full_reply += piece
+            live.update(Markdown(_strip_latex(full_reply)))
     return full_reply
 
 
@@ -183,11 +216,10 @@ def run() -> None:
         # ── inference ─────────────────────────────────────────────────────────
         conversation.add_user(user_input)
 
-        print(f"\nAgent ({current_mode.name}): ", end="", flush=True)
+        print(f"\nAgent ({current_mode.name}):")
         try:
             reply = complete(client, model, conversation)
         except APIConnectionError:
-            print()  # close the half-printed prefix line
             conversation.pop_last_user()
             logger.error(
                 "Connection failed. Could not reach the mimOE endpoint.\n"
@@ -196,7 +228,6 @@ def run() -> None:
             )
             continue
         except APIStatusError as exc:
-            print()  # close the half-printed prefix line
             conversation.pop_last_user()
             logger.error("API error %s: %s", exc.status_code, exc.message)
             continue

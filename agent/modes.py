@@ -28,6 +28,12 @@ class Mode:
     system_prompt: str
 
 
+_FORMAT = (
+    "Format responses using markdown. "
+    "For mathematical expressions use Unicode symbols "
+    "(×, ÷, √, π, ², ³, ≤, ≥, ≠, ∑, ∏) and inline notation rather than LaTeX."
+)
+
 MODES: dict[str, Mode] = {
     "CHAT": Mode(
         name="CHAT",
@@ -35,7 +41,7 @@ MODES: dict[str, Mode] = {
         system_prompt=(
             "You are a helpful, concise assistant. "
             "Answer questions clearly and directly. "
-            "If you are uncertain, say so rather than guessing."
+            f"If you are uncertain, say so rather than guessing. {_FORMAT}"
         ),
     ),
     "CODE": Mode(
@@ -45,7 +51,7 @@ MODES: dict[str, Mode] = {
             "You are an expert programming assistant. "
             "When asked to write code, produce clean, readable, well-structured output. "
             "Briefly explain what the code does and call out any important caveats. "
-            "Prefer simple solutions over clever ones."
+            f"Prefer simple solutions over clever ones. {_FORMAT}"
         ),
     ),
 }
