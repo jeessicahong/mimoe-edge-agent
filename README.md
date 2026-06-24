@@ -209,15 +209,16 @@ Responses are rendered as live markdown using `rich.Live` and `rich.Markdown`, s
 
 One issue I ran into is that small local models may still emit LaTeX-style math even when asked not to. Since `rich.Markdown` does not handle all LaTeX cleanly, I added a small `strip_latex()` preprocessing step. It converts `$$...$$` display math into fenced code blocks and `$...$` inline math into backtick spans, which keeps the terminal output readable and avoids rendering errors.
 
-### Sliding window context management
+### Context management
 
-Conversation history is bounded to the system prompt plus the last 10 user/assistant pairs.
+The SmolLM2 model I tested with has a 2048-token context window. That limit applies to the full request, including the system prompt, recent conversation history, the latest user message, and the generated response.
 
-This keeps requests from growing indefinitely, which matters for smaller local models like SmolLM2. These models usually have much smaller context windows than hosted models, so long sessions can start degrading in quality or fail once too much history is passed in. I also cap each response with `max_tokens=512` for the same reason.
+To keep requests bounded, the agent keeps the system prompt plus the most recent user/assistant turns instead of sending the entire conversation every time. The response is also capped with `max_tokens=512`, which reserves part of the context window for generation rather than filling it entirely with prompt history.
 
-I chose a turn-based window because it is simple, predictable, and avoids adding summarization, persistence, or tokenizer dependencies for a focused assessment project.
+This is a simple sliding-window approach. It keeps the implementation predictable and avoids adding tokenizer or summarization dependencies for a focused assessment project.
 
-That said, turn count is still only a proxy for what actually matters: prompt size. Ten short turns and ten turns with long code blocks are very different. If I were extending this further, I would move to a token-budgeted window instead. A lightweight first step would be a character-based approximation like `len(content) // 4`, which would bound history by estimated prompt size without adding a tokenizer dependency.
+The tradeoff is that turn count is only an approximation for token usage. Ten short turns and ten turns with long code blocks can consume very different amounts of context. If I were extending this further, I would move to a token-budgeted window instead, likely starting with a lightweight character-based estimate such as `len(content) // 4` before adding a tokenizer dependency.
+
 
 
 ### Explicit task routing
