@@ -52,7 +52,7 @@ The `[dev]` extras install `pytest`, `ruff`, and `pre-commit` alongside the runt
 pre-commit install
 ```
 
-This wires up ruff (lint + format) and pytest to run automatically on every `git commit`.
+This wires up ruff (lint + format), the unit test suite, and the integration tests to run automatically on every `git commit`. The integration hook skips silently when Studio is not running.
 
 **4. Configure the endpoint**
 
@@ -169,7 +169,7 @@ mimoe-edge-agent/
 │   └── test_modes.py
 ├── main.py                   # CLI entry point and REPL loop
 ├── pyproject.toml            # package definition, dependencies, tool config
-├── .pre-commit-config.yaml   # ruff + pytest hooks
+├── .pre-commit-config.yaml   # ruff + unit and integration pytest hooks
 ├── .env.example              # configuration template
 ├── .gitignore
 └── README.md
@@ -179,85 +179,95 @@ mimoe-edge-agent/
 
 ## Design choices
 
-**Thin OpenAI-compatible client, no agent framework.**
-I used the OpenAI SDK only as a transport/client wrapper because mimOE exposes an OpenAI-compatible endpoint. I intentionally avoided higher-level agent frameworks so the mimOE integration stays transparent.
+### Thin OpenAI-compatible client, no agent framework
 
-**Streaming responses.**
-`stream=True` on the completions call sends each token to the terminal as soon
-as the model generates it. This removes the frozen-terminal problem with slower
-local models and makes the agent feel responsive. The full reply is still
-assembled and stored in conversation history normally.
+I used the OpenAI SDK as a lightweight client wrapper because mimOE exposes an OpenAI-compatible endpoint. I intentionally kept the integration thin instead of adding LangChain, LlamaIndex, or another agent framework.
 
-**Mode switching as the agentic behavior.**
-Rather than simulating tool calls or orchestration the model cannot reliably
-execute with a small local LLM, the "agentic" dimension here is explicit
-context routing: the user controls which system prompt is active, and the
-agent carries that context through the full conversation. This is a real
-pattern used in production assistants.
+For this scope, I wanted the mimOE connection to stay easy to follow: configure the local endpoint, send messages to the loaded model, stream the response back, and keep the agent logic transparent.
 
-**Structured logging with a clean terminal format.**
-`print()` is reserved for conversational output (the agent's replies and the
-`You:` prompt) so it goes to stdout and can be piped independently. All
-operational messages — startup info, mode switches, errors — go through
-`logging` to stderr. INFO messages have no level prefix (they are status lines,
-not log entries); WARNING and above show the level so problems stand out. The
-`LOG_LEVEL` environment variable controls verbosity without any source edits.
+### Streaming responses
 
-**In-memory history only.**
-Session history is kept in a Python list and discarded on exit. Persistence
-(SQLite, a JSON file) was a deliberate non-requirement for this scope — adding
-it would require choosing a schema and a resumption strategy, neither of which
-the assessment asks for.
+The chat completion call uses `stream=True` so tokens are written to the terminal as soon as the local model generates them.
 
-**Environment-based configuration.**
-`MIMOE_BASE_URL`, `MIMOE_MODEL`, and `MIMOE_API_KEY` are loaded from `.env`
-at startup. The app exits immediately with a clear, actionable error message if
-either required variable is missing.
+This matters more with smaller local models because responses can feel slow if the terminal stays frozen until the full completion is done. Streaming makes the CLI feel more responsive while still allowing the app to assemble the full assistant reply and store it in conversation history.
+
+### Mode switching as the agentic behavior
+
+I kept the “agentic” behavior focused and explicit. Instead of trying to force tool calling or complex orchestration onto a small local model, the app supports mode switching through different system prompts.
+
+The user can choose the active mode, and the agent carries that context through the conversation. This keeps the behavior predictable while still showing a real assistant pattern: routing the same model through different task contexts.
+
+### Structured logging with a clean terminal format
+
+I separated conversational output from operational output.
+
+`print()` is only used for the actual chat experience: the `You:` prompt and the assistant’s streamed replies. That output goes to stdout, which keeps it easy to read or pipe elsewhere.
+
+Operational messages, such as startup status, mode changes, warnings, and errors, go through `logging` to stderr. INFO logs are formatted like clean status messages without a level prefix, while WARNING and ERROR messages include the level so problems stand out.
+
+The `LOG_LEVEL` environment variable controls verbosity without requiring source changes.
+
+### In-memory history only
+
+Conversation history is stored in a Python list for the current session and discarded when the app exits.
+
+I intentionally did not add persistence for this version. Saving history to SQLite, JSON, or another store would require decisions around schema, session resumption, truncation, and privacy. Those are valid next steps, but they were outside the focused scope of this assessment.
+
+### Environment-based configuration
+
+`MIMOE_BASE_URL`, `MIMOE_MODEL`, and `MIMOE_API_KEY` are loaded from `.env` at startup.
+
+The app exits early with a clear error message if a required value is missing. This keeps the project portable because the exact endpoint and model name should come from the API panel in mimOE Studio rather than being hardcoded.
 
 ---
 
 ## Limitations
 
-- **Model capability:** SmolLM2 and similarly small local models have limited
-  context windows and reasoning ability. Long conversations may degrade in
-  quality as history grows.
-- **No tool use / function calling:** Local small models vary widely in their
-  support for the `tools` parameter. Excluded intentionally.
-- **No persistent history:** Conversation is lost on exit.
-- **API key placeholder:** mimOE's local endpoint does not validate the API
-  key, but the OpenAI client requires a non-empty string. `"not-required"` is
-  used as a safe placeholder.
+* **Model capability:** SmolLM2 and similarly small local models have more limited reasoning ability and context windows than larger hosted models. As conversation history grows, response quality may degrade.
+* **No tool use or function calling:** I intentionally left out tool calling because support can vary across small local models and OpenAI-compatible local runtimes.
+* **No persistent history:** Conversation state only exists for the current CLI session.
+* **API key placeholder:** mimOE’s local endpoint does not appear to validate the API key, but the OpenAI SDK still requires a non-empty value. The app uses `"not-required"` as a safe local placeholder when no key is provided.
 
 ---
 
-## Technical notes (assessment)
+## Technical notes
 
 ### What I explored
 
-I loaded SmolLM2 in mimOE Studio and used the built-in API panel to inspect the
-local OpenAI-compatible endpoint. The panel exposes:
+I loaded SmolLM2 in mimOE Studio and used the built-in API panel to inspect the local OpenAI-compatible endpoint.
 
-- A `base_url` (e.g. `http://localhost:<port>/v1`)
-- A model identifier string
-- Example `curl` commands confirming the standard `/chat/completions` route
+The API panel provided the key details needed by the client:
 
-The endpoint accepted standard `openai` Python client calls with `base_url`
-overridden — no custom HTTP code was needed. Streaming (`stream=True`) also
-worked out of the box, with the server sending chunked responses that the
-OpenAI client iterates as `ChatCompletionChunk` objects.
+* the local `base_url`
+* the model identifier
+* example `curl` commands
+* confirmation that the endpoint supports the standard chat completions route
+
+After that, the integration was straightforward. The OpenAI Python client worked with the local mimOE endpoint by overriding `base_url`, so I did not need to write custom HTTP request logic.
+
+Streaming also worked through the same client. With `stream=True`, the local server returned incremental response chunks, which the OpenAI SDK exposed as `ChatCompletionChunk` objects.
 
 ### Why this approach
 
-The OpenAI Python client's `base_url` override is the canonical way to target
-any OpenAI-compatible third-party endpoint. It handles request construction,
-response parsing, retry logic, and type-safe response objects. Pointing it at
-a local mimOE endpoint requires exactly two lines of configuration change and
-zero custom networking code — which is exactly what "BYO Framework" means in
-practice: bring the tool you know, configure it for the new backend.
+I chose the OpenAI Python client because it is the simplest way to target an OpenAI-compatible endpoint without adding unnecessary abstraction.
 
-### What "on-device AI" means here
+The client already handles request construction, response parsing, streaming, retry behavior, and typed response objects. Pointing it at mimOE only requires changing the base URL and model configuration.
 
-The entire inference stack runs on the local machine. mimOE Studio acts as a
-local model server — it loads the model weights, manages the inference runtime,
-and exposes an HTTP API. The agent code is a thin client. There is no external
-network call, no API billing, and inference requests are sent to the local mimOE endpoint.
+That felt like the right interpretation of the “BYO Framework” option: use a tool I already know, configure it for the local mimOE backend, and keep the rest of the app small enough to explain clearly.
+
+### What “on-device AI” means in this project
+
+In this project, the inference path stays local.
+
+mimOE Studio acts as the local model server. It loads the model, manages the inference runtime, and exposes an HTTP API on the local machine. The CLI agent is just the client layer on top of that local server.
+
+So the flow is:
+
+```text
+CLI agent
+→ local mimOE OpenAI-compatible endpoint
+→ loaded local model
+→ streamed response back to the terminal
+```
+
+There is no external model API call from the agent, no cloud inference request, and no API billing tied to each completion. The main tradeoff is that quality, speed, and context length depend on the local model and the machine running it.
