@@ -58,6 +58,18 @@ def test_pop_last_user_is_safe_when_only_system_message():
     assert len(c.recent_messages()) == 1
 
 
+def test_replace_system_prompt_raises_on_empty():
+    c = Conversation("old prompt")
+    with pytest.raises(ValueError, match="empty"):
+        c.replace_system_prompt("")
+
+
+def test_replace_system_prompt_raises_on_whitespace_only():
+    c = Conversation("old prompt")
+    with pytest.raises(ValueError, match="empty"):
+        c.replace_system_prompt("   ")
+
+
 def test_replace_system_prompt_updates_first_message():
     c = Conversation("old prompt")
     c.replace_system_prompt("new prompt")
@@ -72,6 +84,18 @@ def test_replace_system_prompt_preserves_history():
     assert len(c.recent_messages()) == 3
     assert c.recent_messages()[1]["content"] == "hello"
     assert c.recent_messages()[2]["content"] == "hi"
+
+
+def test_clear_raises_on_empty_system_prompt():
+    c = Conversation("system")
+    with pytest.raises(ValueError, match="empty"):
+        c.clear("")
+
+
+def test_clear_raises_on_whitespace_only_system_prompt():
+    c = Conversation("system")
+    with pytest.raises(ValueError, match="empty"):
+        c.clear("   ")
 
 
 def test_clear_resets_to_single_system_message():

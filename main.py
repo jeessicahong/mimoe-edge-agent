@@ -5,12 +5,12 @@ Usage:
     python main.py
 
 Special commands (type at the prompt):
-    /chat    Switch to general-assistant mode
-    /code    Switch to code-assistant mode
-    /clear   Clear conversation history (keeps current mode)
-    /mode    Show the current mode
-    /help    Show available commands
-    /quit    Exit
+    /chat    switch to general assistant mode
+    /code    switch to code assistant mode
+    /clear   clear conversation history (keeps current mode)
+    /mode    show current mode
+    /help    show this message
+    /quit    exit
 """
 
 from __future__ import annotations
@@ -85,6 +85,7 @@ def complete(client: OpenAI, model: str, conversation: Conversation) -> str:
 
     Returns:
         The complete assistant reply assembled from all streamed chunks.
+        Capped at 512 tokens per response (``max_tokens=512``).
     """
     messages = conversation.recent_messages()
     logger.debug("Sending %d messages to model", len(messages))

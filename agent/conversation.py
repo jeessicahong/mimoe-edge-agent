@@ -74,7 +74,12 @@ class Conversation:
 
         Args:
             system_prompt: The new instruction to place at position 0.
+
+        Raises:
+            ValueError: If system_prompt is empty or whitespace-only.
         """
+        if not system_prompt.strip():
+            raise ValueError("System prompt must not be empty.")
         self._messages[0] = {"role": "system", "content": system_prompt}
         logger.debug("System prompt updated")
 
@@ -83,7 +88,12 @@ class Conversation:
 
         Args:
             system_prompt: The instruction to seed the new conversation with.
+
+        Raises:
+            ValueError: If system_prompt is empty or whitespace-only.
         """
+        if not system_prompt.strip():
+            raise ValueError("System prompt must not be empty.")
         self._messages = [{"role": "system", "content": system_prompt}]
         logger.debug("Conversation history reset")
 

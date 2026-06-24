@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 import httpx
 import pytest
@@ -22,7 +26,7 @@ def _make_chunk(content: str | None) -> MagicMock:
     return chunk
 
 
-def _make_stream(*contents: str | None):
+def _make_stream(*contents: str | None) -> Iterator[MagicMock]:
     return iter(_make_chunk(c) for c in contents)
 
 
@@ -185,11 +189,6 @@ def test_run_keyboard_interrupt_exits_cleanly(mock_run_deps: MagicMock) -> None:
         run()
 
 
-def test_run_empty_input_is_skipped(mock_run_deps: MagicMock) -> None:
-    with patch("builtins.input", side_effect=["", "  ", "/quit"]):
-        run()
-
-
 def test_run_empty_input_does_not_call_complete(mock_run_deps: MagicMock) -> None:
     with patch("builtins.input", side_effect=["", "  ", "/quit"]):
         run()
@@ -218,10 +217,13 @@ def test_run_assistant_reply_is_added_to_history(mock_run_deps: MagicMock) -> No
     assert any(m["role"] == "assistant" and m["content"] == "the reply" for m in second_messages)
 
 
-def test_run_help_command_prints_help_text(
-    mock_run_deps: MagicMock, capsys: pytest.CaptureFixture
-) -> None:
-    with patch("builtins.input", side_effect=["/help", "/quit"]):
+def test_run_help_command_prints_help_text(capsys: pytest.CaptureFixture) -> None:
+    with (
+        patch("main.build_client"),
+        patch("main.get_model", return_value="test-model"),
+        patch("main.setup_logging"),
+        patch("builtins.input", side_effect=["/help", "/quit"]),
+    ):
         run()
     assert "/chat" in capsys.readouterr().out
 
